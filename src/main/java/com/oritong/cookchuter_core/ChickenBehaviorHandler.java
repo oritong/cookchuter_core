@@ -21,6 +21,8 @@ import net.neoforged.neoforge.event.tick.EntityTickEvent;
 @EventBusSubscriber(modid = CookchuterCore.MOD_ID)
 public final class ChickenBehaviorHandler {
     private static final String FLEE_TICKS_TAG = "CookchuterFleeTicks";
+    private static final String FLEE_DIRECTION_X_TAG = "CookchuterFleeDirectionX";
+    private static final String FLEE_DIRECTION_Z_TAG = "CookchuterFleeDirectionZ";
     private static final String RECOVERY_DELAY_TICKS_TAG = "CookchuterRecoveryDelayTicks";
     private static final String RECOVERY_TICKS_TAG = "CookchuterRecoveryTicks";
     private static final String HEALTH_RANDOMIZED_TAG = "CookchuterHealthRandomized";
@@ -61,13 +63,13 @@ public final class ChickenBehaviorHandler {
         boolean hasFleeGoal = hasGoal(chicken, ChickenFleeGoal.class);
         boolean hasRecoveryGoal = hasGoal(chicken, ChickenRecoveryGoal.class);
         if (!hasFleeGoal) {
-            chicken.goalSelector.addGoal(1, new ChickenFleeGoal(chicken));
+            chicken.goalSelector.addGoal(-1, new ChickenFleeGoal(chicken));
         }
         if (!hasApproachGoal) {
-            chicken.goalSelector.addGoal(1, new ChickenApproachGoal(chicken));
+            chicken.goalSelector.addGoal(2, new ChickenApproachGoal(chicken));
         }
         if (!hasRecoveryGoal) {
-            chicken.goalSelector.addGoal(1, new ChickenRecoveryGoal(chicken));
+            chicken.goalSelector.addGoal(3, new ChickenRecoveryGoal(chicken));
         }
     }
 
@@ -88,6 +90,9 @@ public final class ChickenBehaviorHandler {
         data.putInt(FLEE_TICKS_TAG, FLEE_DURATION_TICKS);
         data.putInt(RECOVERY_DELAY_TICKS_TAG, RECOVERY_DELAY_TICKS);
         data.putInt(RECOVERY_TICKS_TAG, 0);
+        Player attacker = event.getSource().getEntity() instanceof Player player ? player : findNearestPlayer(chicken);
+        setFleeDirection(chicken, attacker);
+        moveAway(chicken);
     }
 
     @SubscribeEvent
@@ -143,6 +148,37 @@ public final class ChickenBehaviorHandler {
                 .orElse(null);
     }
 
+    private static void setFleeDirection(Chicken chicken, Player attacker) {
+        double directionX = attacker == null ? chicken.getRandom().nextDouble() - 0.5 : chicken.getX() - attacker.getX();
+        double directionZ = attacker == null ? chicken.getRandom().nextDouble() - 0.5 : chicken.getZ() - attacker.getZ();
+        if (directionX * directionX + directionZ * directionZ < 1.0E-4) {
+            directionX = chicken.getRandom().nextDouble() - 0.5;
+            directionZ = chicken.getRandom().nextDouble() - 0.5;
+        }
+        double length = Math.sqrt(directionX * directionX + directionZ * directionZ);
+        CompoundTag data = chicken.getPersistentData();
+        data.putDouble(FLEE_DIRECTION_X_TAG, directionX / length);
+        data.putDouble(FLEE_DIRECTION_Z_TAG, directionZ / length);
+    }
+
+    private static void moveAway(Chicken chicken) {
+        CompoundTag data = chicken.getPersistentData();
+        double directionX = data.getDouble(FLEE_DIRECTION_X_TAG);
+        double directionZ = data.getDouble(FLEE_DIRECTION_Z_TAG);
+        if (directionX * directionX + directionZ * directionZ < 1.0E-4) {
+            setFleeDirection(chicken, findNearestPlayer(chicken));
+            directionX = chicken.getPersistentData().getDouble(FLEE_DIRECTION_X_TAG);
+            directionZ = chicken.getPersistentData().getDouble(FLEE_DIRECTION_Z_TAG);
+        }
+
+        double destinationX = chicken.getX() + directionX * 8.0;
+        double destinationZ = chicken.getZ() + directionZ * 8.0;
+        boolean pathStarted = chicken.getNavigation().moveTo(destinationX, chicken.getY(), destinationZ, FLEE_SPEED);
+        if (!pathStarted || chicken.getNavigation().isStuck()) {
+            chicken.getMoveControl().setWantedPosition(destinationX, chicken.getY(), destinationZ, FLEE_SPEED);
+        }
+    }
+
     private static final class ChickenApproachGoal extends Goal {
         private final Chicken chicken;
         private Player target;
@@ -179,14 +215,20 @@ public final class ChickenBehaviorHandler {
             }
 
             chicken.getLookControl().setLookAt(target, 30.0F, 30.0F);
-            if (chicken.tickCount % 10 == 0 || chicken.getNavigation().isDone()) {
-                chicken.getNavigation().moveTo(target, APPROACH_SPEED);
+            boolean inMeleeRange = chicken.isWithinMeleeAttackRange(target);
+            if (inMeleeRange) {
+                chicken.getNavigation().stop();
+            } else if (chicken.tickCount % 5 == 0 || chicken.getNavigation().isDone() || chicken.getNavigation().isStuck()) {
+                boolean pathStarted = chicken.getNavigation().moveTo(target, APPROACH_SPEED);
+                if ((!pathStarted || chicken.getNavigation().isStuck()) && chicken.getSensing().hasLineOfSight(target)) {
+                    chicken.getMoveControl().setWantedPosition(target.getX(), chicken.getY(), target.getZ(), APPROACH_SPEED);
+                }
             }
 
             if (attackCooldown > 0) {
                 attackCooldown--;
             }
-            if (chicken.distanceToSqr(target) <= 1.5 * 1.5 && attackCooldown == 0) {
+            if (inMeleeRange && chicken.getSensing().hasLineOfSight(target) && attackCooldown == 0) {
                 chicken.swing(InteractionHand.MAIN_HAND);
                 target.hurt(chicken.damageSources().mobAttack(chicken), ATTACK_DAMAGE);
                 attackCooldown = 20;
@@ -198,12 +240,15 @@ public final class ChickenBehaviorHandler {
             target = null;
             chicken.getNavigation().stop();
         }
+
+        @Override
+        public boolean requiresUpdateEveryTick() {
+            return true;
+        }
     }
 
     private static final class ChickenFleeGoal extends Goal {
         private final Chicken chicken;
-        private Player threat;
-
         private ChickenFleeGoal(Chicken chicken) {
             this.chicken = chicken;
             setFlags(EnumSet.of(Goal.Flag.MOVE, Goal.Flag.LOOK));
@@ -221,38 +266,24 @@ public final class ChickenBehaviorHandler {
 
         @Override
         public void start() {
-            chicken.getNavigation().stop();
+            moveAway(chicken);
         }
 
         @Override
         public void tick() {
-            if (chicken.tickCount % 10 != 0) {
-                return;
+            if (chicken.tickCount % 10 == 0 || chicken.getNavigation().isDone() || chicken.getNavigation().isStuck()) {
+                moveAway(chicken);
             }
-
-            threat = findNearestPlayer(chicken);
-            if (threat == null) {
-                chicken.getNavigation().stop();
-                return;
-            }
-
-            chicken.getLookControl().setLookAt(threat, 30.0F, 30.0F);
-            double awayX = chicken.getX() - threat.getX();
-            double awayZ = chicken.getZ() - threat.getZ();
-            if (awayX * awayX + awayZ * awayZ < 1.0E-4) {
-                awayX = chicken.getRandom().nextDouble() - 0.5;
-                awayZ = chicken.getRandom().nextDouble() - 0.5;
-            }
-            double length = Math.sqrt(awayX * awayX + awayZ * awayZ);
-            double destinationX = chicken.getX() + awayX / length * 8.0;
-            double destinationZ = chicken.getZ() + awayZ / length * 8.0;
-            chicken.getNavigation().moveTo(destinationX, chicken.getY(), destinationZ, FLEE_SPEED);
         }
 
         @Override
         public void stop() {
-            threat = null;
             chicken.getNavigation().stop();
+        }
+
+        @Override
+        public boolean requiresUpdateEveryTick() {
+            return true;
         }
     }
 
