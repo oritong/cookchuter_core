@@ -7,6 +7,8 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.ai.goal.Goal;
 import net.minecraft.world.entity.ai.goal.PanicGoal;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.Chicken;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.AABB;
@@ -19,12 +21,17 @@ import net.neoforged.neoforge.event.tick.EntityTickEvent;
 @EventBusSubscriber(modid = CookchuterCore.MOD_ID)
 public final class ChickenBehaviorHandler {
     private static final String FLEE_TICKS_TAG = "CookchuterFleeTicks";
+    private static final String RECOVERY_DELAY_TICKS_TAG = "CookchuterRecoveryDelayTicks";
     private static final String RECOVERY_TICKS_TAG = "CookchuterRecoveryTicks";
-    private static final int FLEE_DURATION_TICKS = 15 * 20;
+    private static final String HEALTH_RANDOMIZED_TAG = "CookchuterHealthRandomized";
+    private static final int MIN_CHICKEN_HEALTH = 12;
+    private static final int CHICKEN_HEALTH_VARIANCE = 7;
+    private static final int FLEE_DURATION_TICKS = 6 * 20;
+    private static final int RECOVERY_DELAY_TICKS = 15 * 20;
     private static final int RECOVERY_INTERVAL_TICKS = 20;
     private static final double PLAYER_RANGE = 32.0;
-    private static final double APPROACH_SPEED = 0.4;
-    private static final double FLEE_SPEED = 1.8;
+    private static final double APPROACH_SPEED = 0.8;
+    private static final double FLEE_SPEED = 1.0;
     private static final float ATTACK_DAMAGE = 1.0F;
     private static final float RECOVERY_FRACTION_PER_SECOND = 0.05F;
 
@@ -35,6 +42,18 @@ public final class ChickenBehaviorHandler {
     public static void onChickenJoinLevel(EntityJoinLevelEvent event) {
         if (!(event.getEntity() instanceof Chicken chicken) || event.getLevel().isClientSide()) {
             return;
+        }
+
+        CompoundTag data = chicken.getPersistentData();
+        if (!data.getBoolean(HEALTH_RANDOMIZED_TAG)) {
+            if (!event.loadedFromDisk()) {
+                AttributeInstance maxHealth = chicken.getAttribute(Attributes.MAX_HEALTH);
+                if (maxHealth != null) {
+                    maxHealth.setBaseValue(MIN_CHICKEN_HEALTH + chicken.getRandom().nextInt(CHICKEN_HEALTH_VARIANCE));
+                    chicken.setHealth(chicken.getMaxHealth());
+                }
+            }
+            data.putBoolean(HEALTH_RANDOMIZED_TAG, true);
         }
 
         chicken.goalSelector.removeAllGoals(goal -> goal instanceof PanicGoal);
@@ -60,8 +79,14 @@ public final class ChickenBehaviorHandler {
             return;
         }
 
+        if (event.getSource().getEntity() instanceof Player attacker
+                && (attacker.isCreative() || attacker.isSpectator())) {
+            return;
+        }
+
         CompoundTag data = chicken.getPersistentData();
         data.putInt(FLEE_TICKS_TAG, FLEE_DURATION_TICKS);
+        data.putInt(RECOVERY_DELAY_TICKS_TAG, RECOVERY_DELAY_TICKS);
         data.putInt(RECOVERY_TICKS_TAG, 0);
     }
 
@@ -75,8 +100,15 @@ public final class ChickenBehaviorHandler {
         int fleeTicks = data.getInt(FLEE_TICKS_TAG);
         if (fleeTicks > 0) {
             data.putInt(FLEE_TICKS_TAG, fleeTicks - 1);
-            data.putInt(RECOVERY_TICKS_TAG, 0);
-            return;
+        }
+
+        int recoveryDelayTicks = data.getInt(RECOVERY_DELAY_TICKS_TAG);
+        if (recoveryDelayTicks > 0) {
+            data.putInt(RECOVERY_DELAY_TICKS_TAG, recoveryDelayTicks - 1);
+            if (recoveryDelayTicks > 1) {
+                return;
+            }
+            data.putInt(RECOVERY_TICKS_TAG, RECOVERY_INTERVAL_TICKS - 1);
         }
 
         float maxHealth = chicken.getMaxHealth();
@@ -105,7 +137,7 @@ public final class ChickenBehaviorHandler {
     private static Player findNearestPlayer(Chicken chicken) {
         AABB searchArea = chicken.getBoundingBox().inflate(PLAYER_RANGE);
         return chicken.level().getEntitiesOfClass(Player.class, searchArea,
-                        player -> player.isAlive() && !player.isSpectator())
+                        player -> player.isAlive() && !player.isCreative() && !player.isSpectator())
                 .stream()
                 .min(Comparator.comparingDouble(chicken::distanceToSqr))
                 .orElse(null);
@@ -135,6 +167,7 @@ public final class ChickenBehaviorHandler {
             return canApproach(chicken)
                     && target != null
                     && target.isAlive()
+                    && !target.isCreative()
                     && !target.isSpectator()
                     && chicken.distanceToSqr(target) <= PLAYER_RANGE * PLAYER_RANGE;
         }
@@ -211,8 +244,8 @@ public final class ChickenBehaviorHandler {
                 awayZ = chicken.getRandom().nextDouble() - 0.5;
             }
             double length = Math.sqrt(awayX * awayX + awayZ * awayZ);
-            double destinationX = chicken.getX() + awayX / length * 12.0;
-            double destinationZ = chicken.getZ() + awayZ / length * 12.0;
+            double destinationX = chicken.getX() + awayX / length * 8.0;
+            double destinationZ = chicken.getZ() + awayZ / length * 8.0;
             chicken.getNavigation().moveTo(destinationX, chicken.getY(), destinationZ, FLEE_SPEED);
         }
 
