@@ -3,6 +3,9 @@ package com.oritong.cookchuter_core;
 
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.Set;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.ai.goal.Goal;
@@ -11,7 +14,15 @@ import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.animal.Chicken;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.PathNavigationRegion;
+import net.minecraft.world.level.pathfinder.Node;
+import net.minecraft.world.level.pathfinder.NodeEvaluator;
+import net.minecraft.world.level.pathfinder.Path;
+import net.minecraft.world.level.pathfinder.PathFinder;
+import net.minecraft.world.level.pathfinder.WalkNodeEvaluator;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.entity.EntityJoinLevelEvent;
@@ -179,10 +190,119 @@ public final class ChickenBehaviorHandler {
         }
     }
 
+    private static boolean hasSafeFootingAhead(Chicken chicken, double targetX, double targetZ) {
+        if (!chicken.onGround()) {
+            return false;
+        }
+
+        double directionX = targetX - chicken.getX();
+        double directionZ = targetZ - chicken.getZ();
+        double distance = Math.sqrt(directionX * directionX + directionZ * directionZ);
+        if (distance < 1.0E-4) {
+            return false;
+        }
+        directionX /= distance;
+        directionZ /= distance;
+
+        double lookAhead = Math.min(distance, chicken.getBbWidth() + 0.4);
+        double sideOffset = chicken.getBbWidth() * 0.35;
+        // Check the whole short movement, including both sides, so a diagonal cannot cut across a hole.
+        for (double forward = 0.2; forward < lookAhead + 0.2; forward += 0.2) {
+            double offset = Math.min(forward, lookAhead);
+            for (int side = -1; side <= 1; side++) {
+                double sampleX = chicken.getX() + directionX * offset - directionZ * side * sideOffset;
+                double sampleZ = chicken.getZ() + directionZ * offset + directionX * side * sideOffset;
+                if (!hasSupportingSurface(chicken, sampleX, sampleZ)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private static boolean hasSupportingSurface(Chicken chicken, double x, double z) {
+        double feetY = chicken.getY();
+        AABB probe = new AABB(x - 0.025, feetY - 1.05, z - 0.025, x + 0.025, feetY + 1.05, z + 0.025);
+        // Collision surfaces also support slabs and stairs; liquids and empty space do not.
+        for (VoxelShape shape : chicken.level().getBlockCollisions(chicken, probe)) {
+            double top = shape.max(Direction.Axis.Y);
+            if (top >= feetY - 1.01 && top <= feetY + 1.01) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isSafeNextPathStep(Chicken chicken, Path path) {
+        if (!chicken.onGround()) {
+            return true;
+        }
+        double previousY = chicken.getY();
+        // Navigation may advance to the following node later in this tick; check that transition too.
+        int end = Math.min(path.getNodeCount(), path.getNextNodeIndex() + 2);
+        for (int i = path.getNextNodeIndex(); i < end; i++) {
+            Vec3 node = path.getEntityPosAtNode(chicken, i);
+            if (previousY - node.y > 1.01) {
+                return false;
+            }
+            previousY = node.y;
+        }
+        Vec3 next = path.getNextEntityPos(chicken);
+        return chicken.distanceToSqr(next.x, chicken.getY(), next.z) < 0.01
+                || hasSafeFootingAhead(chicken, next.x, next.z);
+    }
+
+    private static void stopChasingMovement(Chicken chicken) {
+        chicken.getNavigation().stop();
+        chicken.getMoveControl().setWantedPosition(chicken.getX(), chicken.getY(), chicken.getZ(), 0.0);
+        chicken.setSpeed(0.0F);
+        chicken.setZza(0.0F);
+        chicken.setXxa(0.0F);
+    }
+
+    private static final class ChaseNodeEvaluator extends WalkNodeEvaluator {
+        private final boolean[] safeNeighbors = new boolean[32];
+
+        @Override
+        public int getNeighbors(Node[] output, Node origin) {
+            int count = super.getNeighbors(output, origin);
+            // Evaluate diagonals before compacting the array: both adjacent sides must be safe.
+            for (int i = 0; i < count; i++) {
+                Node next = output[i];
+                safeNeighbors[i] = origin.y - next.y <= 1;
+                if (next.x != origin.x && next.z != origin.z) {
+                    safeNeighbors[i] &= hasSafeSide(output, count, next.x, origin.z, origin.y)
+                            && hasSafeSide(output, count, origin.x, next.z, origin.y);
+                }
+            }
+            int safeCount = 0;
+            for (int i = 0; i < count; i++) {
+                // Exclude cliffs during the search so a safe detour can still be found.
+                if (safeNeighbors[i]) {
+                    output[safeCount++] = output[i];
+                }
+            }
+            return safeCount;
+        }
+
+        private boolean hasSafeSide(Node[] neighbors, int count, int x, int z, int fromY) {
+            for (int i = 0; i < count; i++) {
+                Node side = neighbors[i];
+                if (side.x == x && side.z == z && fromY - side.y <= 1) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
     private static final class ChickenApproachGoal extends Goal {
         private final Chicken chicken;
+        private final ChaseNodeEvaluator nodeEvaluator = new ChaseNodeEvaluator();
+        private final PathFinder pathFinder = new PathFinder(nodeEvaluator, (int) PLAYER_RANGE * 16);
         private Player target;
         private int attackCooldown;
+        private int pathCooldown;
 
         private ChickenApproachGoal(Chicken chicken) {
             this.chicken = chicken;
@@ -210,18 +330,33 @@ public final class ChickenBehaviorHandler {
 
         @Override
         public void tick() {
-            if (target == null) {
+            if (!canContinueToUse()) {
+                stopChasingMovement(chicken);
                 return;
             }
 
             chicken.getLookControl().setLookAt(target, 30.0F, 30.0F);
             boolean inMeleeRange = chicken.isWithinMeleeAttackRange(target);
-            if (inMeleeRange) {
-                chicken.getNavigation().stop();
-            } else if (chicken.tickCount % 5 == 0 || chicken.getNavigation().isDone() || chicken.getNavigation().isStuck()) {
-                boolean pathStarted = chicken.getNavigation().moveTo(target, APPROACH_SPEED);
-                if ((!pathStarted || chicken.getNavigation().isStuck()) && chicken.getSensing().hasLineOfSight(target)) {
-                    chicken.getMoveControl().setWantedPosition(target.getX(), chicken.getY(), target.getZ(), APPROACH_SPEED);
+            boolean canSeeTarget = chicken.getSensing().hasLineOfSight(target);
+            if (inMeleeRange && canSeeTarget) {
+                stopChasingMovement(chicken);
+            } else {
+                if (--pathCooldown <= 0 && chicken.onGround()) {
+                    chicken.getNavigation().moveTo(createSafePath(), APPROACH_SPEED);
+                    pathCooldown = 10;
+                }
+                Path path = chicken.getNavigation().getPath();
+                if (path != null && !path.isDone() && !chicken.getNavigation().isStuck()) {
+                    if (!isSafeNextPathStep(chicken, path)) {
+                        stopChasingMovement(chicken);
+                    }
+                } else if (canSeeTarget && hasSafeFootingAhead(chicken, target.getX(), target.getZ())) {
+                    // Recheck every tick and only issue a short move, rather than a command across the whole gap.
+                    Vec3 step = target.position().subtract(chicken.position()).multiply(1.0, 0.0, 1.0).normalize().scale(0.4);
+                    chicken.getNavigation().stop();
+                    chicken.getMoveControl().setWantedPosition(chicken.getX() + step.x, chicken.getY(), chicken.getZ() + step.z, APPROACH_SPEED);
+                } else {
+                    stopChasingMovement(chicken);
                 }
             }
 
@@ -235,10 +370,24 @@ public final class ChickenBehaviorHandler {
             }
         }
 
+        private Path createSafePath() {
+            NodeEvaluator navigationEvaluator = chicken.getNavigation().getNodeEvaluator();
+            nodeEvaluator.setCanPassDoors(navigationEvaluator.canPassDoors());
+            nodeEvaluator.setCanOpenDoors(navigationEvaluator.canOpenDoors());
+            nodeEvaluator.setCanFloat(navigationEvaluator.canFloat());
+            nodeEvaluator.setCanWalkOverFences(navigationEvaluator.canWalkOverFences());
+            BlockPos center = chicken.blockPosition();
+            int radius = (int) PLAYER_RANGE + 8;
+            PathNavigationRegion region = new PathNavigationRegion(chicken.level(),
+                    center.offset(-radius, -radius, -radius), center.offset(radius, radius, radius));
+            return pathFinder.findPath(region, chicken, Set.of(target.blockPosition()), (float) PLAYER_RANGE, 0, 1.0F);
+        }
+
         @Override
         public void stop() {
             target = null;
-            chicken.getNavigation().stop();
+            pathCooldown = 0;
+            stopChasingMovement(chicken);
         }
 
         @Override

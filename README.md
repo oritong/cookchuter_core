@@ -12,11 +12,16 @@ Minecraft 1.21.1 的 NeoForge 核心模组项目，使用 Java 21。
 | Minecraft | `1.21.1` |
 | NeoForge | `21.1.265` |
 | Java | `21` |
-| 模组版本 | `0.1.0-hotfix3` |
+| 模组版本 | `0.1.0-hotfix4` |
 | 作者 | [oritong](https://github.com/oritong)、[water2H2O](https://github.com/water2H2O) |
 | 许可证 | GPL-3.0-only |
 
 ## 变更记录
+
+### 0.1.0-hotfix4
+
+- 鸡追击玩家时会排除超过一格的向下寻路节点，并避免斜向切过坑洞；悬崖边停止前进，可沿安全通路绕行。
+- 新增 GameTest 覆盖悬崖停步、平地近战、绕过坑洞和单格台阶；使用 `./gradlew runGameTestServer` 运行。
 
 ### 0.1.0-hotfix3
 
@@ -47,6 +52,6 @@ Minecraft 1.21.1 的 NeoForge 核心模组项目，使用 Java 21。
 
 开发客户端、服务端和数据生成任务分别使用 `runClient`、`runServer` 和 `runData`。
 
-构建产物位于 `build/libs/cookchuter_core-0.1.0-hotfix3.jar`。
+构建产物位于 `build/libs/cookchuter_core-0.1.0-hotfix4.jar`。
 
 项目基于 [NeoForge 官方 Minecraft 1.21.1 ModDevGradle MDK](https://github.com/NeoForgeMDKs/MDK-1.21.1-ModDevGradle) 创建。模组源码以 GPL-3.0-only 发布；NeoForge MDK 模板文件继续遵循 `TEMPLATE_LICENSE.txt` 中的 MIT 许可。

@@ -15,8 +15,16 @@ java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
 sourceSets.main.resources.srcDir('src/generated/resources')
 
+sourceSets {
+    gameTest {
+        compileClasspath += sourceSets.main.output
+        runtimeClasspath += sourceSets.main.output
+    }
+}
+
 neoForge {
     version = project.neo_version
+    addModdingDependenciesTo(sourceSets.gameTest)
 
     parchment {
         mappingsVersion = project.parchment_mappings_version
@@ -40,6 +48,13 @@ neoForge {
                     '--existing', file('src/main/resources/').getAbsolutePath()
         }
 
+        gameTestServer {
+            type = 'gameTestServer'
+            sourceSet = sourceSets.gameTest
+            gameDirectory = file('run/gameTest')
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+        }
+
         configureEach {
             logLevel = org.slf4j.event.Level.INFO
         }
@@ -48,6 +63,7 @@ neoForge {
     mods {
         "${mod_id}" {
             sourceSet(sourceSets.main)
+            sourceSet(sourceSets.gameTest)
         }
     }
 }
@@ -75,6 +91,10 @@ neoForge.ideSyncTask generateModMetadata
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
     options.release = 21
+}
+
+tasks.named('check') {
+    dependsOn tasks.named('gameTestClasses')
 }
 
 tasks.withType(AbstractArchiveTask).configureEach {
