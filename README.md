@@ -12,11 +12,15 @@ Minecraft 1.21.1 的 NeoForge 核心模组项目，使用 Java 21。
 | Minecraft | `1.21.1` |
 | NeoForge | `21.1.265` |
 | Java | `21` |
-| 模组版本 | `0.1.0-hotfix4` |
+| 模组版本 | `0.1.0-hotfix5` |
 | 作者 | [oritong](https://github.com/oritong)、[water2H2O](https://github.com/water2H2O) |
 | 许可证 | GPL-3.0-only |
 
 ## 变更记录
+
+### 0.1.0-hotfix5
+
+- 将鸡发现并追击玩家的范围调整为 7.5 格；范围外玩家不会成为追击目标。
 
 ### 0.1.0-hotfix4
 
@@ -52,6 +56,6 @@ Minecraft 1.21.1 的 NeoForge 核心模组项目，使用 Java 21。
 
 开发客户端、服务端和数据生成任务分别使用 `runClient`、`runServer` 和 `runData`。
 
-构建产物位于 `build/libs/cookchuter_core-0.1.0-hotfix4.jar`。
+构建产物位于 `build/libs/cookchuter_core-0.1.0-hotfix5.jar`。
 
 项目基于 [NeoForge 官方 Minecraft 1.21.1 ModDevGradle MDK](https://github.com/NeoForgeMDKs/MDK-1.21.1-ModDevGradle) 创建。模组源码以 GPL-3.0-only 发布；NeoForge MDK 模板文件继续遵循 `TEMPLATE_LICENSE.txt` 中的 MIT 许可。

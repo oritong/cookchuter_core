@@ -4,6 +4,7 @@ package com.oritong.cookchuter_core;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.ai.goal.RandomStrollGoal;
 import net.minecraft.world.entity.animal.Chicken;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.GameType;
@@ -51,6 +52,22 @@ public final class ChickenChaseGameTests {
         });
     }
 
+    @GameTest(template = "chase_arena", timeoutTicks = 60, batch = "detection_range")
+    public static void ignoresPlayersOutsideDetectionRange(GameTestHelper helper) {
+        floor(helper);
+        Player target = target(helper, 11.1, 1.0, 5.5);
+        Chicken chicken = helper.spawn(EntityType.CHICKEN, new Vec3(3.5, 1.0, 5.5));
+        // Keep idle wandering from moving the chicken inside the detection boundary.
+        chicken.goalSelector.removeAllGoals(goal -> goal instanceof RandomStrollGoal);
+        double startX = chicken.getX();
+        helper.runAtTickTime(40, () -> {
+            helper.assertTrue(target.getHealth() == target.getMaxHealth() && chicken.getX() < startX + 1.0,
+                    "Chicken pursued a player outside its 7.5-block detection range");
+            target.discard();
+            helper.succeed();
+        });
+    }
+
     @GameTest(template = "chase_arena", timeoutTicks = 260, batch = "detour")
     public static void followsSafeDetourAroundHole(GameTestHelper helper) {
         floor(helper);
@@ -64,7 +81,7 @@ public final class ChickenChaseGameTests {
                 }
             }
         }
-        Player target = target(helper, 12.5, 4.0, 5.5);
+        Player target = target(helper, 10.5, 4.0, 5.5);
         Chicken chicken = helper.spawn(EntityType.CHICKEN, new Vec3(3.5, 4.0, 5.5));
         double platformTop = helper.absoluteVec(new Vec3(0, 4, 0)).y;
         helper.onEachTick(() -> helper.assertTrue(chicken.getY() >= platformTop - 0.1,
@@ -88,8 +105,8 @@ public final class ChickenChaseGameTests {
                 }
             }
         }
-        Player target = target(helper, 12.5, 1.0, 5.5);
-        Chicken chicken = helper.spawn(EntityType.CHICKEN, new Vec3(3.5, 4.0, 5.5));
+        Player target = target(helper, 11.0, 1.0, 5.5);
+        Chicken chicken = helper.spawn(EntityType.CHICKEN, new Vec3(4.5, 4.0, 5.5));
         helper.runAtTickTime(150, () -> {
             helper.assertTrue(target.getHealth() < target.getMaxHealth() && target.getLastHurtByMob() == chicken,
                     "Chicken refused a safe staircase");

@@ -42,7 +42,8 @@ public final class ChickenBehaviorHandler {
     private static final int FLEE_DURATION_TICKS = 6 * 20;
     private static final int RECOVERY_DELAY_TICKS = 15 * 20;
     private static final int RECOVERY_INTERVAL_TICKS = 20;
-    private static final double PLAYER_RANGE = 32.0;
+    private static final double PLAYER_DETECTION_RANGE = 7.5;
+    private static final double PATHFINDING_RANGE = 32.0;
     private static final double APPROACH_SPEED = 0.8;
     private static final double FLEE_SPEED = 1.0;
     private static final float ATTACK_DAMAGE = 1.0F;
@@ -151,9 +152,12 @@ public final class ChickenBehaviorHandler {
     }
 
     private static Player findNearestPlayer(Chicken chicken) {
-        AABB searchArea = chicken.getBoundingBox().inflate(PLAYER_RANGE);
+        AABB searchArea = chicken.getBoundingBox().inflate(PLAYER_DETECTION_RANGE);
         return chicken.level().getEntitiesOfClass(Player.class, searchArea,
-                        player -> player.isAlive() && !player.isCreative() && !player.isSpectator())
+                        player -> player.isAlive()
+                                && !player.isCreative()
+                                && !player.isSpectator()
+                                && chicken.distanceToSqr(player) <= PLAYER_DETECTION_RANGE * PLAYER_DETECTION_RANGE)
                 .stream()
                 .min(Comparator.comparingDouble(chicken::distanceToSqr))
                 .orElse(null);
@@ -299,7 +303,7 @@ public final class ChickenBehaviorHandler {
     private static final class ChickenApproachGoal extends Goal {
         private final Chicken chicken;
         private final ChaseNodeEvaluator nodeEvaluator = new ChaseNodeEvaluator();
-        private final PathFinder pathFinder = new PathFinder(nodeEvaluator, (int) PLAYER_RANGE * 16);
+        private final PathFinder pathFinder = new PathFinder(nodeEvaluator, (int) PATHFINDING_RANGE * 16);
         private Player target;
         private int attackCooldown;
         private int pathCooldown;
@@ -325,7 +329,7 @@ public final class ChickenBehaviorHandler {
                     && target.isAlive()
                     && !target.isCreative()
                     && !target.isSpectator()
-                    && chicken.distanceToSqr(target) <= PLAYER_RANGE * PLAYER_RANGE;
+                    && chicken.distanceToSqr(target) <= PLAYER_DETECTION_RANGE * PLAYER_DETECTION_RANGE;
         }
 
         @Override
@@ -377,10 +381,10 @@ public final class ChickenBehaviorHandler {
             nodeEvaluator.setCanFloat(navigationEvaluator.canFloat());
             nodeEvaluator.setCanWalkOverFences(navigationEvaluator.canWalkOverFences());
             BlockPos center = chicken.blockPosition();
-            int radius = (int) PLAYER_RANGE + 8;
+            int radius = (int) PATHFINDING_RANGE + 8;
             PathNavigationRegion region = new PathNavigationRegion(chicken.level(),
                     center.offset(-radius, -radius, -radius), center.offset(radius, radius, radius));
-            return pathFinder.findPath(region, chicken, Set.of(target.blockPosition()), (float) PLAYER_RANGE, 0, 1.0F);
+            return pathFinder.findPath(region, chicken, Set.of(target.blockPosition()), (float) PATHFINDING_RANGE, 0, 1.0F);
         }
 
         @Override
