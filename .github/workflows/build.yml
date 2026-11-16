@@ -24,5 +24,5 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew build
 
-      - name: Run chicken chase GameTests
+      - name: Run animal behavior GameTests
         run: ./gradlew runGameTestServer

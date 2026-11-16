@@ -12,11 +12,20 @@ Minecraft 1.21.1 的 NeoForge 核心模组项目，使用 Java 21。
 | Minecraft | `1.21.1` |
 | NeoForge | `21.1.265` |
 | Java | `21` |
-| 模组版本 | `0.1.0-hotfix5` |
+| 模组版本 | `0.1.1` |
 | 作者 | [oritong](https://github.com/oritong)、[water2H2O](https://github.com/water2H2O) |
 | 许可证 | GPL-3.0-only |
 
 ## 变更记录
+
+### 0.1.1
+
+- 新增开发提示：在游戏内同时按下 `Shift + Ctrl + Alt + D` 切换显示/隐藏，默认隐藏，不出现在控制菜单的按键绑定列表中。文字在准心上方、约屏幕高度 26% 的位置居中，过长时自动缩小以保持单行。
+  > 该整合包[名称待定]正在开发中    测试画面不代表最终品质    解释权归哦里冻、Water2H2O所有
+- 羊会发现并追击 7.5 格内的生存/冒险玩家，每秒造成 2 点近战伤害；受伤后逃跑 4 秒，逃跑中随机交替转弯，受伤满 8 秒后每秒恢复最大生命值的 5%，满血后重新追击。羊沿用鸡的防跳崖逻辑，并忽略创造、旁观模式玩家。
+- 羊的随机最大生命值为 8–14，鸡下调为 6–10。已有鸡和羊在载入时应用一次新血量范围，保留当前生命值比例，后续载入不重复随机。
+- 鸡保持 1 点近战伤害、6 秒逃跑、15 秒回血等待和 7.5 格检测范围。
+- GameTest 验证鸡原有追击行为、羊伤害、逃跑弯路、4/8 秒时序、回血后恢复攻击、玩家模式过滤和血量迁移。
 
 ### 0.1.0-hotfix5
 
@@ -56,6 +65,6 @@ Minecraft 1.21.1 的 NeoForge 核心模组项目，使用 Java 21。
 
 开发客户端、服务端和数据生成任务分别使用 `runClient`、`runServer` 和 `runData`。
 
-构建产物位于 `build/libs/cookchuter_core-0.1.0-hotfix5.jar`。
+构建产物位于 `build/libs/cookchuter_core-0.1.1.jar`。
 
 项目基于 [NeoForge 官方 Minecraft 1.21.1 ModDevGradle MDK](https://github.com/NeoForgeMDKs/MDK-1.21.1-ModDevGradle) 创建。模组源码以 GPL-3.0-only 发布；NeoForge MDK 模板文件继续遵循 `TEMPLATE_LICENSE.txt` 中的 MIT 许可。
